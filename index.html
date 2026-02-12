@@ -3,251 +3,240 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Detector de Caneta BIC - 3D Match</title>
+    <title>Detector de Caneta - Debug Mode</title>
     
-    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/mobilenet"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/knn-classifier"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@3.11.0/dist/tf.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/mobilenet@2.1.0/dist/mobilenet.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/knn-classifier@1.2.2/dist/knn-classifier.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
 
     <style>
-        body { margin: 0; overflow: hidden; font-family: 'Arial', sans-serif; background: #222; }
+        body { margin: 0; overflow: hidden; font-family: sans-serif; background: #1a1a1a; color: white; }
         
-        /* O vídeo da câmera ocupa a tela toda */
         #webcam {
-            position: absolute;
-            top: 0; left: 0;
-            width: 100%; height: 100%;
-            object-fit: cover;
-            z-index: 1;
-            transform: scaleX(-1); /* Espelhar câmera */
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            object-fit: cover; z-index: 1; transform: scaleX(-1);
         }
 
-        /* O modelo 3D fica no canto como referência */
         #canvas-3d {
-            position: absolute;
-            top: 20px; right: 20px;
-            width: 150px; height: 150px;
-            z-index: 2;
-            border: 3px solid #00AAFF;
-            border-radius: 10px;
-            background: rgba(0,0,0,0.5);
+            position: absolute; top: 10px; right: 10px; width: 120px; height: 120px;
+            z-index: 2; border: 2px solid #00AAFF; background: rgba(0,0,0,0.5); border-radius: 8px;
         }
 
-        /* Interface de Controle */
         #ui-layer {
-            position: absolute;
-            bottom: 30px; left: 0;
-            width: 100%;
-            z-index: 3;
-            text-align: center;
-            color: white;
+            position: absolute; bottom: 20px; left: 0; width: 100%; z-index: 3;
+            text-align: center; display: flex; flex-direction: column; align-items: center;
         }
 
         .status-box {
-            font-size: 24px;
-            font-weight: bold;
-            text-shadow: 2px 2px 4px #000;
-            margin-bottom: 20px;
-            padding: 10px;
-            background: rgba(0,0,0,0.6);
-            display: inline-block;
-            border-radius: 8px;
+            font-size: 18px; padding: 10px 20px; background: rgba(0,0,0,0.7);
+            border-radius: 8px; margin-bottom: 15px; border: 2px solid #fff;
         }
+        .match { border-color: #0f0; color: #0f0; }
+        .no-match { border-color: #f00; color: #f00; }
 
-        .match { color: #00FF00; border: 2px solid #00FF00; }
-        .no-match { color: #FF0000; border: 2px solid #FF0000; }
-        .neutral { color: #FFFF00; }
-
-        .btn-container {
-            display: flex;
-            justify-content: center;
-            gap: 15px;
-        }
-
+        .btn-container { display: flex; gap: 10px; }
         button {
-            padding: 15px 25px;
-            border: none;
-            border-radius: 30px;
-            font-size: 14px;
-            font-weight: bold;
-            cursor: pointer;
-            box-shadow: 0 4px 6px rgba(0,0,0,0.3);
-            transition: transform 0.1s;
+            padding: 15px; border: none; border-radius: 8px; font-weight: bold; cursor: pointer;
         }
+        .btn-neg { background: #ff5555; color: white; }
+        .btn-pos { background: #55ff55; color: black; }
 
-        button:active { transform: scale(0.95); }
-        .btn-negative { background-color: #ff4d4d; color: white; }
-        .btn-positive { background-color: #4dff88; color: #004400; }
-
-        #loading {
-            position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
-            color: white; z-index: 10; font-size: 20px; background: rgba(0,0,0,0.8);
-            padding: 20px; border-radius: 10px;
+        /* Tela de Logs (Debug) */
+        #debug-screen {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.9); z-index: 10;
+            display: flex; flex-direction: column; justify-content: center; align-items: center;
+            padding: 20px; box-sizing: border-box; text-align: center;
         }
+        #log-text { color: #aaa; margin-top: 10px; font-family: monospace; font-size: 12px; }
+        #error-msg { color: #ff5555; font-size: 16px; margin-top: 10px; display: none; }
+        .spinner {
+            border: 4px solid #f3f3f3; border-top: 4px solid #3498db; border-radius: 50%;
+            width: 40px; height: 40px; animation: spin 2s linear infinite; margin-bottom: 20px;
+        }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
     </style>
 </head>
 <body>
 
-    <div id="loading">Carregando IA e Modelo 3D...</div>
+    <div id="debug-screen">
+        <div class="spinner"></div>
+        <h2 id="loading-status">Inicializando sistema...</h2>
+        <div id="log-text">Aguardando scripts...</div>
+        <div id="error-msg"></div>
+        <button id="retry-btn" style="display:none; margin-top:20px;" onclick="location.reload()">Tentar Novamente</button>
+    </div>
 
     <video id="webcam" autoplay playsinline muted></video>
-
     <div id="canvas-3d"></div>
 
     <div id="ui-layer">
-        <div id="status" class="status-box neutral">Aguardando Treinamento...</div>
-        
-        <p style="font-size: 12px; margin-bottom: 5px;">Segure o botão para ensinar a IA:</p>
+        <div id="status" class="status-box">Aguardando Treinamento</div>
         <div class="btn-container">
-            <button class="btn-negative" onmousedown="startTraining('nada')" onmouseup="stopTraining()" ontouchstart="startTraining('nada')" ontouchend="stopTraining()">
-                1. Aprender "Outra Coisa"
-            </button>
-            <button class="btn-positive" onmousedown="startTraining('caneta')" onmouseup="stopTraining()" ontouchstart="startTraining('caneta')" ontouchend="stopTraining()">
-                2. Aprender "Esta Caneta"
-            </button>
+            <button class="btn-neg" onmousedown="startTraining('nada')" onmouseup="stopTraining()" ontouchstart="startTraining('nada')" ontouchend="stopTraining()">1. Outra Coisa</button>
+            <button class="btn-pos" onmousedown="startTraining('caneta')" onmouseup="stopTraining()" ontouchstart="startTraining('caneta')" ontouchend="stopTraining()">2. Esta Caneta</button>
         </div>
     </div>
 
     <script>
-        let net;
-        let classifier;
-        let webcamElement;
-        let isTraining = false;
-        let trainingLabel = null;
-        let timer;
-
-        // --- CONFIGURAÇÃO 3D (THREE.JS) ---
-        function init3D() {
-            const container = document.getElementById('canvas-3d');
-            const scene = new THREE.Scene();
-            const camera = new THREE.PerspectiveCamera(50, 1, 0.1, 1000);
-            const renderer = new THREE.WebGLRenderer({ alpha: true }); // Fundo transparente
-            
-            renderer.setSize(150, 150);
-            container.appendChild(renderer.domElement);
-
-            // Luzes
-            const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
-            scene.add(ambientLight);
-            const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
-            dirLight.position.set(5, 10, 7);
-            scene.add(dirLight);
-
-            // Carregar o modelo GLB
-            const loader = new THREE.GLTFLoader();
-            loader.load('Sketchfab_Scene (1).glb', function (gltf) {
-                const model = gltf.scene;
-                // Ajustar escala e posição manual para caber na janelinha
-                model.scale.set(100, 100, 100); 
-                model.position.y = -2;
-                scene.add(model);
-
-                // Animação simples (rotação)
-                function animate() {
-                    requestAnimationFrame(animate);
-                    model.rotation.y += 0.01;
-                    model.rotation.x = 0.5; // Leve inclinação para ver melhor
-                    renderer.render(scene, camera);
-                }
-                animate();
-            }, undefined, function (error) {
-                console.error('Erro ao carregar 3D:', error);
-                container.innerHTML = "<p style='color:white; font-size:10px; text-align:center;'>Modelo 3D não encontrado<br>Verifique o nome do arquivo.</p>";
-            });
-
-            camera.position.z = 10;
+        // Sistema de Logs Visual
+        const logText = document.getElementById('log-text');
+        const statusTitle = document.getElementById('loading-status');
+        const errorMsg = document.getElementById('error-msg');
+        
+        function log(msg) {
+            console.log(msg);
+            logText.innerText = msg;
         }
 
-        // --- CONFIGURAÇÃO IA (TENSORFLOW.JS) ---
+        function fatalError(msg) {
+            console.error(msg);
+            statusTitle.innerText = "Erro Fatal";
+            statusTitle.style.color = "#ff5555";
+            errorMsg.innerText = msg;
+            errorMsg.style.display = 'block';
+            document.querySelector('.spinner').style.display = 'none';
+            document.getElementById('retry-btn').style.display = 'inline-block';
+        }
+
+        let net, classifier, webcamElement;
+        let isTraining = false, trainingLabel = null;
+
+        async function initApp() {
+            try {
+                // 1. Validar WebGL
+                log("Verificando suporte WebGL...");
+                const canvasTest = document.createElement('canvas');
+                const gl = canvasTest.getContext('webgl') || canvasTest.getContext('experimental-webgl');
+                if (!gl) throw new Error("Seu navegador não suporta WebGL (Gráficos 3D).");
+
+                // 2. Carregar MobileNet
+                log("Baixando Inteligência Artificial (MobileNet)...");
+                net = await mobilenet.load();
+                classifier = knnClassifier.create();
+                log("IA Carregada com sucesso.");
+
+                // 3. Carregar Modelo 3D
+                log("Carregando Modelo 3D (caneta.glb)...");
+                init3D(); // Inicia o carregamento (assíncrono)
+
+                // 4. Iniciar Câmera
+                log("Solicitando acesso à câmera...");
+                await setupWebcam();
+                log("Câmera ativa.");
+
+                // 5. Finalizar
+                document.getElementById('debug-screen').style.display = 'none';
+                loop();
+
+            } catch (err) {
+                fatalError(err.message || err);
+            }
+        }
+
         async function setupWebcam() {
             webcamElement = document.getElementById('webcam');
             return new Promise((resolve, reject) => {
-                const navigatorAny = navigator;
-                navigator.getUserMedia = navigator.getUserMedia ||
-                    navigatorAny.webkitGetUserMedia || navigatorAny.mozGetUserMedia ||
-                    navigatorAny.msGetUserMedia;
-                
-                if (navigator.getUserMedia) {
-                    navigator.getUserMedia({ video: true },
-                        stream => {
-                            webcamElement.srcObject = stream;
-                            webcamElement.addEventListener('loadeddata', () => resolve(), false);
-                        },
-                        error => reject());
-                } else {
-                    reject();
+                if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+                    return reject("Seu navegador não suporta acesso à câmera.");
                 }
+                
+                navigator.mediaDevices.getUserMedia({ 
+                    video: { facingMode: 'environment' } // Tenta usar câmera traseira no celular
+                })
+                .then(stream => {
+                    webcamElement.srcObject = stream;
+                    webcamElement.addEventListener('loadeddata', () => resolve(), false);
+                })
+                .catch(err => {
+                    reject("Erro ao acessar câmera: " + err.message + ". Verifique permissões ou HTTPS.");
+                });
             });
         }
 
-        async function initApp() {
-            console.log('Carregando MobileNet...');
+        function init3D() {
+            const container = document.getElementById('canvas-3d');
+            const scene = new THREE.Scene();
+            const camera = new THREE.PerspectiveCamera(50, 1, 0.1, 100);
+            const renderer = new THREE.WebGLRenderer({ alpha: true });
+            renderer.setSize(120, 120);
+            container.appendChild(renderer.domElement);
             
-            // 1. Inicializa o 3D
-            init3D();
+            const ambientLight = new THREE.AmbientLight(0xffffff, 1);
+            scene.add(ambientLight);
 
-            // 2. Carrega o Modelo Base (MobileNet)
-            net = await mobilenet.load();
-            
-            // 3. Cria o Classificador KNN
-            classifier = knnClassifier.create();
+            const loader = new THREE.GLTFLoader();
+            // IMPORTANTE: Nome do arquivo simplificado
+            loader.load('./caneta.glb', (gltf) => {
+                const model = gltf.scene;
+                
+                // Ajuste automático de escala (bounding box)
+                const box = new THREE.Box3().setFromObject(model);
+                const size = box.getSize(new THREE.Vector3()).length();
+                const scaleFactor = 4 / size; // Ajusta para caber na visão
+                model.scale.set(scaleFactor, scaleFactor, scaleFactor);
+                
+                // Centralizar
+                const center = box.getCenter(new THREE.Vector3());
+                model.position.x += (model.position.x - center.x);
+                model.position.y += (model.position.y - center.y);
+                model.position.z += (model.position.z - center.z);
 
-            // 4. Inicia Webcam
-            await setupWebcam();
+                scene.add(model);
+                
+                function animate() {
+                    requestAnimationFrame(animate);
+                    model.rotation.y += 0.02;
+                    model.rotation.x = 0.5;
+                    renderer.render(scene, camera);
+                }
+                animate();
+                log("Modelo 3D visualizado.");
+            }, 
+            undefined, // onProgress
+            (error) => {
+                console.error(error);
+                log("Aviso: 'caneta.glb' não encontrado ou erro 3D. (O app continuará sem o 3D)");
+                container.innerHTML = "<p style='font-size:10px; text-align:center; padding-top:40px;'>3D Indisponível</p>";
+            });
 
-            document.getElementById('loading').style.display = 'none';
-            
-            // Loop principal
+            camera.position.z = 5;
+        }
+
+        async function loop() {
             while (true) {
                 if (classifier.getNumClasses() > 0) {
                     const activation = net.infer(webcamElement, 'conv_preds');
                     const result = await classifier.predictClass(activation);
-
                     const statusDiv = document.getElementById('status');
-                    
-                    // Lógica de Confiança e Match
-                    // label 'caneta' = Match
-                    // label 'nada' = Não reconhecido
+
                     if (result.label === 'caneta' && result.confidences['caneta'] > 0.8) {
-                        statusDiv.innerText = "MATCH (Caneta BIC)";
+                        statusDiv.innerText = "MATCH! (É a Caneta)";
                         statusDiv.className = "status-box match";
                     } else {
-                        statusDiv.innerText = "Objeto não reconhecido";
+                        statusDiv.innerText = "Não reconhecido";
                         statusDiv.className = "status-box no-match";
                     }
+                    activation.dispose(); // Limpar memória
                 }
                 
-                // Treinamento em tempo real
-                if (isTraining && trainingLabel) {
-                    addExample(trainingLabel);
+                if (isTraining && trainingLabel != null) {
+                    const activation = net.infer(webcamElement, 'conv_preds');
+                    classifier.addExample(activation, trainingLabel);
+                    activation.dispose();
                 }
 
                 await tf.nextFrame();
             }
         }
 
-        // Função para adicionar exemplos ao classificador
-        const addExample = classId => {
-            const activation = net.infer(webcamElement, 'conv_preds');
-            classifier.addExample(activation, classId);
-        };
+        window.startTraining = (label) => { isTraining = true; trainingLabel = label; };
+        window.stopTraining = () => { isTraining = false; trainingLabel = null; };
 
-        // Controles dos botões
-        window.startTraining = (label) => {
-            isTraining = true;
-            trainingLabel = label;
-            console.log(`Treinando: ${label}`);
-        };
-
-        window.stopTraining = () => {
-            isTraining = false;
-            trainingLabel = null;
-        };
-
-        // Iniciar tudo
-        initApp();
+        // Iniciar
+        window.addEventListener('load', initApp);
 
     </script>
 </body>
