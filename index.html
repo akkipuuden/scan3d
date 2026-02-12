@@ -2,8 +2,8 @@
 <html lang="pt-br">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Detector de Caneta - Debug Mode</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Detector Caneta - Versão Touch Fix</title>
     
     <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@3.11.0/dist/tf.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/mobilenet@2.1.0/dist/mobilenet.min.js"></script>
@@ -12,7 +12,13 @@
     <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
 
     <style>
-        body { margin: 0; overflow: hidden; font-family: sans-serif; background: #1a1a1a; color: white; }
+        body { 
+            margin: 0; overflow: hidden; font-family: sans-serif; background: #000; color: white;
+            /* Impede seleção e zoom no celular */
+            touch-action: none; 
+            user-select: none;
+            -webkit-user-select: none;
+        }
         
         #webcam {
             position: absolute; top: 0; left: 0; width: 100%; height: 100%;
@@ -22,221 +28,251 @@
         #canvas-3d {
             position: absolute; top: 10px; right: 10px; width: 120px; height: 120px;
             z-index: 2; border: 2px solid #00AAFF; background: rgba(0,0,0,0.5); border-radius: 8px;
+            display: flex; align-items: center; justify-content: center; font-size: 10px;
         }
 
         #ui-layer {
-            position: absolute; bottom: 20px; left: 0; width: 100%; z-index: 3;
-            text-align: center; display: flex; flex-direction: column; align-items: center;
+            position: absolute; bottom: 20px; left: 0; width: 100%; z-index: 5;
+            display: flex; flex-direction: column; align-items: center; pointer-events: none; /* Permite clicar no video */
         }
 
         .status-box {
-            font-size: 18px; padding: 10px 20px; background: rgba(0,0,0,0.7);
-            border-radius: 8px; margin-bottom: 15px; border: 2px solid #fff;
+            font-size: 20px; padding: 15px 30px; background: rgba(0,0,0,0.8);
+            border-radius: 12px; margin-bottom: 20px; border: 3px solid #666;
+            font-weight: bold; text-align: center; width: 80%;
         }
-        .match { border-color: #0f0; color: #0f0; }
-        .no-match { border-color: #f00; color: #f00; }
+        .match { border-color: #00ff00; color: #00ff00; box-shadow: 0 0 15px #00ff00; }
+        .no-match { border-color: #ff0000; color: #ff0000; }
 
-        .btn-container { display: flex; gap: 10px; }
+        .btn-container { 
+            display: flex; gap: 15px; width: 90%; justify-content: center; pointer-events: auto; 
+        }
+
         button {
-            padding: 15px; border: none; border-radius: 8px; font-weight: bold; cursor: pointer;
+            flex: 1; padding: 20px 10px; border: none; border-radius: 15px; 
+            font-weight: bold; font-size: 16px; cursor: pointer;
+            transition: transform 0.1s, opacity 0.2s;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.5);
+            /* Importante para mobile */
+            -webkit-tap-highlight-color: transparent;
+            touch-action: manipulation;
         }
-        .btn-neg { background: #ff5555; color: white; }
-        .btn-pos { background: #55ff55; color: black; }
 
-        /* Tela de Logs (Debug) */
-        #debug-screen {
-            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
-            background: rgba(0,0,0,0.9); z-index: 10;
-            display: flex; flex-direction: column; justify-content: center; align-items: center;
-            padding: 20px; box-sizing: border-box; text-align: center;
+        button:active, button.active-press { transform: scale(0.92); opacity: 0.8; }
+
+        .btn-neg { background: #ff4444; color: white; border-bottom: 5px solid #cc0000; }
+        .btn-neg.active-press { background: #ff0000; border-bottom: 2px solid #cc0000; transform: translateY(3px); }
+
+        .btn-pos { background: #44ff44; color: #003300; border-bottom: 5px solid #00cc00; }
+        .btn-pos.active-press { background: #00ff00; border-bottom: 2px solid #00cc00; transform: translateY(3px); }
+
+        #console-log {
+            position: absolute; top: 0; left: 0; padding: 10px; font-size: 10px; color: yellow; z-index: 10;
+            background: rgba(0,0,0,0.5); pointer-events: none; max-width: 50%;
         }
-        #log-text { color: #aaa; margin-top: 10px; font-family: monospace; font-size: 12px; }
-        #error-msg { color: #ff5555; font-size: 16px; margin-top: 10px; display: none; }
-        .spinner {
-            border: 4px solid #f3f3f3; border-top: 4px solid #3498db; border-radius: 50%;
-            width: 40px; height: 40px; animation: spin 2s linear infinite; margin-bottom: 20px;
-        }
-        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
     </style>
 </head>
 <body>
 
-    <div id="debug-screen">
-        <div class="spinner"></div>
-        <h2 id="loading-status">Inicializando sistema...</h2>
-        <div id="log-text">Aguardando scripts...</div>
-        <div id="error-msg"></div>
-        <button id="retry-btn" style="display:none; margin-top:20px;" onclick="location.reload()">Tentar Novamente</button>
-    </div>
-
+    <div id="console-log">Iniciando...</div>
     <video id="webcam" autoplay playsinline muted></video>
-    <div id="canvas-3d"></div>
+    <div id="canvas-3d"><span id="msg-3d">Carregando 3D...</span></div>
 
     <div id="ui-layer">
-        <div id="status" class="status-box">Aguardando Treinamento</div>
+        <div id="status" class="status-box">Aguardando...</div>
         <div class="btn-container">
-            <button class="btn-neg" onmousedown="startTraining('nada')" onmouseup="stopTraining()" ontouchstart="startTraining('nada')" ontouchend="stopTraining()">1. Outra Coisa</button>
-            <button class="btn-pos" onmousedown="startTraining('caneta')" onmouseup="stopTraining()" ontouchstart="startTraining('caneta')" ontouchend="stopTraining()">2. Esta Caneta</button>
+            <button id="btn-neg" class="btn-neg" 
+                oncontextmenu="return false;">
+                1. NÃO É Caneta
+            </button>
+            <button id="btn-pos" class="btn-pos" 
+                oncontextmenu="return false;">
+                2. É A Caneta
+            </button>
         </div>
+        <p style="margin-top: 10px; font-size: 12px; text-shadow: 1px 1px 2px black;">Segure os botões para treinar</p>
     </div>
 
     <script>
-        // Sistema de Logs Visual
-        const logText = document.getElementById('log-text');
-        const statusTitle = document.getElementById('loading-status');
-        const errorMsg = document.getElementById('error-msg');
-        
-        function log(msg) {
-            console.log(msg);
-            logText.innerText = msg;
-        }
-
-        function fatalError(msg) {
-            console.error(msg);
-            statusTitle.innerText = "Erro Fatal";
-            statusTitle.style.color = "#ff5555";
-            errorMsg.innerText = msg;
-            errorMsg.style.display = 'block';
-            document.querySelector('.spinner').style.display = 'none';
-            document.getElementById('retry-btn').style.display = 'inline-block';
-        }
+        const logDiv = document.getElementById('console-log');
+        function log(text) { logDiv.innerText = text; console.log(text); }
 
         let net, classifier, webcamElement;
-        let isTraining = false, trainingLabel = null;
+        let isTraining = false;
+        let trainingLabel = null;
 
-        async function initApp() {
+        // --- SISTEMA DE BOTÕES (Touch Fix) ---
+        function setupButtons() {
+            const btnNeg = document.getElementById('btn-neg');
+            const btnPos = document.getElementById('btn-pos');
+
+            const handleStart = (label, btn) => (e) => {
+                if(e.cancelable) e.preventDefault(); // Impede scroll/menu
+                isTraining = true;
+                trainingLabel = label;
+                btn.classList.add('active-press');
+                log("Treinando: " + label);
+            };
+
+            const handleEnd = (btn) => (e) => {
+                if(e.cancelable) e.preventDefault();
+                isTraining = false;
+                trainingLabel = null;
+                btn.classList.remove('active-press');
+                log("Treino pausado.");
+            };
+
+            // Eventos para Botão Negativo
+            btnNeg.addEventListener('mousedown', handleStart('nada', btnNeg));
+            btnNeg.addEventListener('touchstart', handleStart('nada', btnNeg), {passive: false});
+            btnNeg.addEventListener('mouseup', handleEnd(btnNeg));
+            btnNeg.addEventListener('touchend', handleEnd(btnNeg));
+            
+            // Eventos para Botão Positivo
+            btnPos.addEventListener('mousedown', handleStart('caneta', btnPos));
+            btnPos.addEventListener('touchstart', handleStart('caneta', btnPos), {passive: false});
+            btnPos.addEventListener('mouseup', handleEnd(btnPos));
+            btnPos.addEventListener('touchend', handleEnd(btnPos));
+        }
+
+        // --- INICIALIZAÇÃO BLINDADA ---
+        async function init() {
             try {
-                // 1. Validar WebGL
-                log("Verificando suporte WebGL...");
-                const canvasTest = document.createElement('canvas');
-                const gl = canvasTest.getContext('webgl') || canvasTest.getContext('experimental-webgl');
-                if (!gl) throw new Error("Seu navegador não suporta WebGL (Gráficos 3D).");
+                setupButtons(); // Configura botões imediatamente
 
-                // 2. Carregar MobileNet
-                log("Baixando Inteligência Artificial (MobileNet)...");
+                // 1. Câmera (Prioridade)
+                webcamElement = document.getElementById('webcam');
+                log("Solicitando Câmera...");
+                
+                // Tenta pegar câmera traseira
+                const stream = await navigator.mediaDevices.getUserMedia({ 
+                    video: { facingMode: 'environment' }, 
+                    audio: false 
+                });
+                webcamElement.srcObject = stream;
+                
+                // Aguarda vídeo carregar
+                await new Promise(r => webcamElement.onloadeddata = r);
+                log("Câmera OK. Carregando IA...");
+
+                // 2. IA (MobileNet)
                 net = await mobilenet.load();
                 classifier = knnClassifier.create();
-                log("IA Carregada com sucesso.");
+                log("IA Pronta. Iniciando loop...");
 
-                // 3. Carregar Modelo 3D
-                log("Carregando Modelo 3D (caneta.glb)...");
-                init3D(); // Inicia o carregamento (assíncrono)
+                // 3. 3D (Não bloqueante)
+                load3D();
 
-                // 4. Iniciar Câmera
-                log("Solicitando acesso à câmera...");
-                await setupWebcam();
-                log("Câmera ativa.");
-
-                // 5. Finalizar
-                document.getElementById('debug-screen').style.display = 'none';
+                // 4. Iniciar Loop Principal
                 loop();
 
-            } catch (err) {
-                fatalError(err.message || err);
+            } catch (e) {
+                log("ERRO FATAL: " + e.message);
+                alert("Erro: " + e.message);
             }
         }
 
-        async function setupWebcam() {
-            webcamElement = document.getElementById('webcam');
-            return new Promise((resolve, reject) => {
-                if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-                    return reject("Seu navegador não suporta acesso à câmera.");
-                }
-                
-                navigator.mediaDevices.getUserMedia({ 
-                    video: { facingMode: 'environment' } // Tenta usar câmera traseira no celular
-                })
-                .then(stream => {
-                    webcamElement.srcObject = stream;
-                    webcamElement.addEventListener('loadeddata', () => resolve(), false);
-                })
-                .catch(err => {
-                    reject("Erro ao acessar câmera: " + err.message + ". Verifique permissões ou HTTPS.");
-                });
-            });
-        }
-
-        function init3D() {
+        // --- 3D INDEPENDENTE ---
+        function load3D() {
             const container = document.getElementById('canvas-3d');
-            const scene = new THREE.Scene();
-            const camera = new THREE.PerspectiveCamera(50, 1, 0.1, 100);
-            const renderer = new THREE.WebGLRenderer({ alpha: true });
-            renderer.setSize(120, 120);
-            container.appendChild(renderer.domElement);
-            
-            const ambientLight = new THREE.AmbientLight(0xffffff, 1);
-            scene.add(ambientLight);
-
-            const loader = new THREE.GLTFLoader();
-            // IMPORTANTE: Nome do arquivo simplificado
-            loader.load('./caneta.glb', (gltf) => {
-                const model = gltf.scene;
+            try {
+                const scene = new THREE.Scene();
+                const camera = new THREE.PerspectiveCamera(50, 1, 0.1, 100);
+                const renderer = new THREE.WebGLRenderer({ alpha: true });
+                renderer.setSize(120, 120);
                 
-                // Ajuste automático de escala (bounding box)
-                const box = new THREE.Box3().setFromObject(model);
-                const size = box.getSize(new THREE.Vector3()).length();
-                const scaleFactor = 4 / size; // Ajusta para caber na visão
-                model.scale.set(scaleFactor, scaleFactor, scaleFactor);
+                // Verifica erro de contexto WebGL
+                if(!renderer.domElement) throw new Error("WebGL erro");
                 
-                // Centralizar
-                const center = box.getCenter(new THREE.Vector3());
-                model.position.x += (model.position.x - center.x);
-                model.position.y += (model.position.y - center.y);
-                model.position.z += (model.position.z - center.z);
+                container.innerHTML = ""; // Limpa texto
+                container.appendChild(renderer.domElement);
 
-                scene.add(model);
-                
-                function animate() {
-                    requestAnimationFrame(animate);
-                    model.rotation.y += 0.02;
-                    model.rotation.x = 0.5;
-                    renderer.render(scene, camera);
-                }
-                animate();
-                log("Modelo 3D visualizado.");
-            }, 
-            undefined, // onProgress
-            (error) => {
-                console.error(error);
-                log("Aviso: 'caneta.glb' não encontrado ou erro 3D. (O app continuará sem o 3D)");
-                container.innerHTML = "<p style='font-size:10px; text-align:center; padding-top:40px;'>3D Indisponível</p>";
-            });
+                const light = new THREE.DirectionalLight(0xffffff, 1.5);
+                light.position.set(0, 0, 10);
+                scene.add(light);
+                scene.add(new THREE.AmbientLight(0xffffff, 0.5));
 
-            camera.position.z = 5;
+                const loader = new THREE.GLTFLoader();
+                loader.load('./caneta.glb', (gltf) => {
+                    const model = gltf.scene;
+                    
+                    // Centralizar e Escalar Automaticamente
+                    const box = new THREE.Box3().setFromObject(model);
+                    const center = box.getCenter(new THREE.Vector3());
+                    const size = box.getSize(new THREE.Vector3());
+                    
+                    const maxDim = Math.max(size.x, size.y, size.z);
+                    const scale = 3 / maxDim; // Escala para caber no view
+                    model.scale.set(scale, scale, scale);
+                    
+                    model.position.x = -center.x * scale;
+                    model.position.y = -center.y * scale;
+                    model.position.z = -center.z * scale;
+
+                    scene.add(model);
+                    camera.position.z = 5;
+
+                    function animate() {
+                        requestAnimationFrame(animate);
+                        model.rotation.y += 0.02;
+                        model.rotation.x = 0.4;
+                        renderer.render(scene, camera);
+                    }
+                    animate();
+                    log("3D Carregado!");
+
+                }, undefined, (err) => {
+                    console.error(err);
+                    document.getElementById('msg-3d').innerText = "Erro 3D (Arquivo?)";
+                    log("Falha ao carregar 3D. Verifique o nome 'caneta.glb'");
+                });
+
+            } catch (e) {
+                console.log("ThreeJS falhou", e);
+                container.innerHTML = "<span style='color:red'>Sem 3D</span>";
+            }
         }
 
+        // --- LOOP PRINCIPAL DA IA ---
         async function loop() {
             while (true) {
                 if (classifier.getNumClasses() > 0) {
-                    const activation = net.infer(webcamElement, 'conv_preds');
-                    const result = await classifier.predictClass(activation);
-                    const statusDiv = document.getElementById('status');
+                    try {
+                        const activation = net.infer(webcamElement, 'conv_preds');
+                        const result = await classifier.predictClass(activation);
+                        const statusDiv = document.getElementById('status');
 
-                    if (result.label === 'caneta' && result.confidences['caneta'] > 0.8) {
-                        statusDiv.innerText = "MATCH! (É a Caneta)";
-                        statusDiv.className = "status-box match";
-                    } else {
-                        statusDiv.innerText = "Não reconhecido";
-                        statusDiv.className = "status-box no-match";
+                        // Lógica de Confiança
+                        if (result.label === 'caneta' && result.confidences['caneta'] > 0.8) {
+                            statusDiv.innerText = "MATCH! (É A CANETA)";
+                            statusDiv.className = "status-box match";
+                        } else {
+                            statusDiv.innerText = "Objeto não reconhecido";
+                            statusDiv.className = "status-box no-match";
+                        }
+                        activation.dispose();
+                    } catch (e) {
+                        console.log("Erro na predição", e);
                     }
-                    activation.dispose(); // Limpar memória
                 }
-                
-                if (isTraining && trainingLabel != null) {
-                    const activation = net.infer(webcamElement, 'conv_preds');
-                    classifier.addExample(activation, trainingLabel);
-                    activation.dispose();
+
+                // Treinamento
+                if (isTraining && trainingLabel) {
+                    try {
+                        const activation = net.infer(webcamElement, 'conv_preds');
+                        classifier.addExample(activation, trainingLabel);
+                        activation.dispose();
+                    } catch(e) {
+                        log("Erro treinando: " + e.message);
+                    }
                 }
 
                 await tf.nextFrame();
             }
         }
 
-        window.startTraining = (label) => { isTraining = true; trainingLabel = label; };
-        window.stopTraining = () => { isTraining = false; trainingLabel = null; };
-
-        // Iniciar
-        window.addEventListener('load', initApp);
+        // Inicia tudo
+        window.onload = init;
 
     </script>
 </body>
